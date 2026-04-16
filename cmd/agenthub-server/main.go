@@ -17,11 +17,13 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/scottkw/agenthub-server/internal/api"
+	"github.com/scottkw/agenthub-server/internal/auth"
 	"github.com/scottkw/agenthub-server/internal/config"
 	dbpkg "github.com/scottkw/agenthub-server/internal/db"
 	"github.com/scottkw/agenthub-server/internal/db/migrations"
 	"github.com/scottkw/agenthub-server/internal/db/sqlite"
 	"github.com/scottkw/agenthub-server/internal/httpfront"
+	"github.com/scottkw/agenthub-server/internal/mail"
 	"github.com/scottkw/agenthub-server/internal/obs"
 	"github.com/scottkw/agenthub-server/internal/supervisor"
 )
@@ -68,8 +70,14 @@ func run() error {
 	}
 	logger.Info("migrations applied", "driver", db.Driver())
 
+	authSvc, err := buildAuthService(ctx, cfg, db, logger)
+	if err != nil {
+		return fmt.Errorf("build auth service: %w", err)
+	}
+
 	router := chi.NewRouter()
 	router.Mount("/healthz", api.NewHealthHandler(db, version))
+	router.Mount("/api/auth", api.AuthRoutes(authSvc))
 
 	front, err := newFrontend(cfg, router)
 	if err != nil {
@@ -139,4 +147,37 @@ func parseLevel(s string) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+func buildAuthService(ctx context.Context, cfg config.Config, db dbpkg.DB, log *slog.Logger) (*auth.Service, error) {
+	key, err := auth.LoadOrCreateJWTKey(ctx, db.SQL())
+	if err != nil {
+		return nil, err
+	}
+	signer := auth.NewJWTSigner(key, cfg.Auth.Issuer)
+
+	var mailer mail.Mailer
+	switch cfg.Mail.Provider {
+	case "smtp":
+		mailer = mail.NewSMTP(mail.SMTPConfig{
+			Host:     cfg.Mail.SMTP.Host,
+			Port:     cfg.Mail.SMTP.Port,
+			Username: cfg.Mail.SMTP.Username,
+			Password: cfg.Mail.SMTP.Password,
+			From:     cfg.Mail.From,
+		})
+	default:
+		mailer = mail.NewNoop(log)
+	}
+
+	return auth.NewService(auth.Config{
+		DB:              db.SQL(),
+		Signer:          signer,
+		Mailer:          mailer,
+		Log:             log,
+		TTL:             auth.Lifetimes{Session: cfg.Auth.SessionTTL, EmailVerify: cfg.Auth.EmailVerifyTTL, PasswordReset: cfg.Auth.PasswordResetTTL},
+		From:            cfg.Mail.From,
+		VerifyURLPrefix: cfg.Auth.VerifyURLPrefix,
+		ResetURLPrefix:  cfg.Auth.ResetURLPrefix,
+	}), nil
 }

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -68,4 +69,12 @@ func TestValidate_Solo_AllowsMissingTLSEmail_WhenOff(t *testing.T) {
 	c := Default()
 	c.TLS.Mode = TLSModeOff
 	require.NoError(t, c.Validate())
+}
+
+func TestConfig_MailAndAuthDefaults(t *testing.T) {
+	c := Default()
+	require.Equal(t, "noop", c.Mail.Provider)
+	require.Equal(t, "agenthub-server", c.Auth.Issuer)
+	require.Equal(t, 24*time.Hour, c.Auth.SessionTTL)
+	require.Equal(t, time.Hour, c.Auth.PasswordResetTTL)
 }

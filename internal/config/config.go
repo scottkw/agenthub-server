@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -42,6 +43,8 @@ type Config struct {
 	TLS      TLSConfig  `yaml:"tls"`
 	DB       DBConfig   `yaml:"db"`
 	Obs      ObsConfig  `yaml:"observability"`
+	Mail     MailConfig `yaml:"mail"`
+	Auth     AuthConfig `yaml:"auth"`
 }
 
 type HTTPConfig struct {
@@ -66,6 +69,29 @@ type ObsConfig struct {
 	LogFormat string `yaml:"log_format"`
 }
 
+type MailConfig struct {
+	Provider string     `yaml:"provider"` // "noop" | "smtp"
+	From     string     `yaml:"from"`
+	SMTP     SMTPConfig `yaml:"smtp"`
+}
+
+type SMTPConfig struct {
+	Host        string `yaml:"host"`
+	Port        int    `yaml:"port"`
+	Username    string `yaml:"username"`
+	Password    string `yaml:"password"`
+	PasswordEnv string `yaml:"password_env"`
+}
+
+type AuthConfig struct {
+	Issuer           string        `yaml:"issuer"`
+	SessionTTL       time.Duration `yaml:"session_ttl"`
+	EmailVerifyTTL   time.Duration `yaml:"email_verify_ttl"`
+	PasswordResetTTL time.Duration `yaml:"password_reset_ttl"`
+	VerifyURLPrefix  string        `yaml:"verify_url_prefix"`
+	ResetURLPrefix   string        `yaml:"reset_url_prefix"`
+}
+
 func Default() Config {
 	return Config{
 		Mode:     ModeSolo,
@@ -84,6 +110,15 @@ func Default() Config {
 		Obs: ObsConfig{
 			LogLevel:  "info",
 			LogFormat: "json",
+		},
+		Mail: MailConfig{
+			Provider: "noop",
+		},
+		Auth: AuthConfig{
+			Issuer:           "agenthub-server",
+			SessionTTL:       24 * time.Hour,
+			EmailVerifyTTL:   24 * time.Hour,
+			PasswordResetTTL: time.Hour,
 		},
 	}
 }
@@ -158,6 +193,37 @@ func applyEnv(c *Config) {
 	}
 	if v := os.Getenv("AGENTHUB_LOG_FORMAT"); v != "" {
 		c.Obs.LogFormat = v
+	}
+	if v := os.Getenv("AGENTHUB_MAIL_PROVIDER"); v != "" {
+		c.Mail.Provider = v
+	}
+	if v := os.Getenv("AGENTHUB_MAIL_FROM"); v != "" {
+		c.Mail.From = v
+	}
+	if v := os.Getenv("AGENTHUB_MAIL_SMTP_HOST"); v != "" {
+		c.Mail.SMTP.Host = v
+	}
+	if v := os.Getenv("AGENTHUB_MAIL_SMTP_PORT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Mail.SMTP.Port = n
+		}
+	}
+	if v := os.Getenv("AGENTHUB_MAIL_SMTP_USER"); v != "" {
+		c.Mail.SMTP.Username = v
+	}
+	if v := os.Getenv("AGENTHUB_MAIL_SMTP_PASS"); v != "" {
+		c.Mail.SMTP.Password = v
+	}
+	if v := os.Getenv("AGENTHUB_VERIFY_URL_PREFIX"); v != "" {
+		c.Auth.VerifyURLPrefix = v
+	}
+	if v := os.Getenv("AGENTHUB_RESET_URL_PREFIX"); v != "" {
+		c.Auth.ResetURLPrefix = v
+	}
+	if c.Mail.SMTP.PasswordEnv != "" {
+		if v := os.Getenv(c.Mail.SMTP.PasswordEnv); v != "" {
+			c.Mail.SMTP.Password = v
+		}
 	}
 }
 
