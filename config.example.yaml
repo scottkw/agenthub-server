@@ -1,0 +1,25 @@
+# agenthub-server example configuration.
+# All values shown are the defaults for solo mode, except hostname and tls.email.
+
+mode: solo                         # solo | hosted
+
+hostname: agenthub.example.com     # required for tls.mode=auto
+data_dir: /var/lib/agenthub-server
+
+http:
+  port: 443
+  http_port: 80                    # for ACME + redirect when tls.mode=auto
+
+tls:
+  mode: auto                       # auto | file | off
+  email: admin@example.com         # required when mode=auto
+  # cert_file: /etc/ssl/certs/agenthub.crt
+  # key_file: /etc/ssl/private/agenthub.key
+
+db:
+  driver: sqlite                   # sqlite | postgres (postgres lands in Plan 08)
+  # url: postgres://user:pass@host/db
+
+observability:
+  log_level: info                  # debug | info | warn | error
+  log_format: json                 # json | text
