@@ -65,3 +65,10 @@ func bearerToken(r *http.Request) (string, bool) {
 	}
 	return strings.TrimSpace(h[len(prefix):]), true
 }
+
+// RequireAuthFromService returns a RequireAuth middleware using the Service's
+// signer + db. Convenience wrapper so HTTP handlers don't need to know about
+// the internals.
+func RequireAuthFromService(svc *Service) func(http.Handler) http.Handler {
+	return RequireAuth(svc.cfg.Signer, svc.cfg.DB)
+}
