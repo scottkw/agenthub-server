@@ -1,0 +1,24 @@
+# Binaries
+/bin/
+/agenthub-server
+*.exe
+
+# Data
+*.db
+*.db-shm
+*.db-wal
+/data/
+/certs/
+
+# Build
+/dist/
+
+# Go
+vendor/
+coverage.out
+
+# Editors
+.idea/
+.vscode/
+*.swp
+.DS_Store
