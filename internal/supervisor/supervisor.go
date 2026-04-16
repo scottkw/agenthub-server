@@ -25,7 +25,6 @@ func Run(ctx context.Context, services []Service) error {
 	g, gctx := errgroup.WithContext(ctx)
 
 	for _, svc := range services {
-		svc := svc
 		if svc.Start == nil {
 			return fmt.Errorf("supervisor: service %q has nil Start", svc.Name)
 		}
