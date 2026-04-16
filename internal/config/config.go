@@ -2,10 +2,12 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -157,4 +159,49 @@ func applyEnv(c *Config) {
 	if v := os.Getenv("AGENTHUB_LOG_FORMAT"); v != "" {
 		c.Obs.LogFormat = v
 	}
+}
+
+// Validate returns an error describing any invalid or inconsistent config.
+func (c Config) Validate() error {
+	var errs []string
+
+	switch c.Mode {
+	case ModeSolo, ModeHosted:
+	default:
+		errs = append(errs, fmt.Sprintf("mode: invalid value %q", c.Mode))
+	}
+
+	switch c.DB.Driver {
+	case DriverSQLite:
+		// URL optional (defaults to DataDir/agenthub.db at open time).
+	case DriverPostgres:
+		if c.DB.URL == "" {
+			errs = append(errs, "db.url: required when db.driver=postgres")
+		}
+	default:
+		errs = append(errs, fmt.Sprintf("db.driver: invalid value %q", c.DB.Driver))
+	}
+
+	if c.Mode == ModeHosted && c.DB.URL == "" {
+		errs = append(errs, "db.url: required when mode=hosted")
+	}
+
+	switch c.TLS.Mode {
+	case TLSModeOff:
+	case TLSModeAuto:
+		if c.TLS.Email == "" {
+			errs = append(errs, "tls.email: required when tls.mode=auto (ACME registration)")
+		}
+	case TLSModeFile:
+		if c.TLS.CertFile == "" || c.TLS.KeyFile == "" {
+			errs = append(errs, "tls.cert_file and tls.key_file: required when tls.mode=file")
+		}
+	default:
+		errs = append(errs, fmt.Sprintf("tls.mode: invalid value %q", c.TLS.Mode))
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+	return errors.New("config invalid: " + strings.Join(errs, "; "))
 }

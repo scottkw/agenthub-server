@@ -43,3 +43,29 @@ func TestLoad_NoConfigFile_ReturnsDefaults(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ModeSolo, c.Mode)
 }
+
+func TestValidate_HostedRequiresDBURL(t *testing.T) {
+	c := Default()
+	c.Mode = ModeHosted
+	c.DB.Driver = DriverPostgres
+	c.DB.URL = "" // missing
+	err := c.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "db.url")
+}
+
+func TestValidate_TLSAutoRequiresEmail(t *testing.T) {
+	c := Default()
+	c.TLS.Mode = TLSModeAuto
+	c.TLS.Email = ""
+	c.Hostname = "example.com"
+	err := c.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tls.email")
+}
+
+func TestValidate_Solo_AllowsMissingTLSEmail_WhenOff(t *testing.T) {
+	c := Default()
+	c.TLS.Mode = TLSModeOff
+	require.NoError(t, c.Validate())
+}
