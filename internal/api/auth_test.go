@@ -100,7 +100,9 @@ func TestAuthRoutes_SignupVerifyLoginLogout(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 
-	var loginResp struct{ Token string `json:"token"` }
+	var loginResp struct {
+		Token string `json:"token"`
+	}
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &loginResp))
 	require.NotEmpty(t, loginResp.Token)
 
