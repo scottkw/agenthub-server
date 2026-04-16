@@ -2,8 +2,12 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Mode string
@@ -91,4 +95,66 @@ func defaultDataDir() string {
 		return "./data"
 	}
 	return filepath.Join(home, ".local", "share", "agenthub-server")
+}
+
+type LoadOptions struct {
+	ConfigPath string
+}
+
+// Load resolves configuration from defaults, optional YAML, and environment.
+// Precedence (highest wins): env → YAML → defaults.
+func Load(opts LoadOptions) (Config, error) {
+	c := Default()
+
+	if opts.ConfigPath != "" {
+		b, err := os.ReadFile(opts.ConfigPath)
+		if err != nil {
+			return Config{}, fmt.Errorf("read config: %w", err)
+		}
+		if err := yaml.Unmarshal(b, &c); err != nil {
+			return Config{}, fmt.Errorf("parse config: %w", err)
+		}
+	}
+
+	applyEnv(&c)
+
+	return c, nil
+}
+
+func applyEnv(c *Config) {
+	if v := os.Getenv("AGENTHUB_MODE"); v != "" {
+		c.Mode = Mode(v)
+	}
+	if v := os.Getenv("AGENTHUB_HOSTNAME"); v != "" {
+		c.Hostname = v
+	}
+	if v := os.Getenv("AGENTHUB_DATA_DIR"); v != "" {
+		c.DataDir = v
+	}
+	if v := os.Getenv("AGENTHUB_HTTP_PORT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.HTTP.Port = n
+		}
+	}
+	if v := os.Getenv("AGENTHUB_TLS_MODE"); v != "" {
+		c.TLS.Mode = TLSMode(v)
+	}
+	if v := os.Getenv("AGENTHUB_TLS_EMAIL"); v != "" {
+		c.TLS.Email = v
+	}
+	if v := os.Getenv("AGENTHUB_DB_DRIVER"); v != "" {
+		c.DB.Driver = Driver(v)
+	}
+	if v := os.Getenv("AGENTHUB_DB_URL"); v != "" {
+		c.DB.URL = v
+		if c.DB.Driver == "" {
+			c.DB.Driver = DriverPostgres
+		}
+	}
+	if v := os.Getenv("AGENTHUB_LOG_LEVEL"); v != "" {
+		c.Obs.LogLevel = v
+	}
+	if v := os.Getenv("AGENTHUB_LOG_FORMAT"); v != "" {
+		c.Obs.LogFormat = v
+	}
 }
