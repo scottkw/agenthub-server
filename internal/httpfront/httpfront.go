@@ -25,7 +25,7 @@ const (
 
 type Options struct {
 	Mode     Mode
-	Address  string   // for ModePlain and ModeFile ("host:port"); "" for ModeAuto
+	Address  string // for ModePlain and ModeFile ("host:port"); "" for ModeAuto
 	Handler  http.Handler
 	CertFile string   // ModeFile
 	KeyFile  string   // ModeFile
