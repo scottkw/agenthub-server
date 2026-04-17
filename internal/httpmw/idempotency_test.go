@@ -66,7 +66,7 @@ func TestIdempotency_WithoutHeaderPassesThrough(t *testing.T) {
 	mw := NewIdempotency(IdempotencyConfig{DB: d.SQL(), TTL: time.Hour})
 	h := mw(handler)
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		req := httptest.NewRequest("POST", "/x", bytes.NewReader([]byte(`{"a":1}`)))
 		req.RemoteAddr = "4.4.4.4:1"
 		rr := httptest.NewRecorder()
