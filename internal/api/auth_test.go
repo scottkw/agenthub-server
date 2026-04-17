@@ -34,6 +34,15 @@ func (s *stubMailer) Send(_ context.Context, m mail.Message) error {
 }
 
 func newRouterWithAuth(t *testing.T) (*chi.Mux, *stubMailer) {
+	r, mailer, _ := newRouterWithAuthInternal(t)
+	return r, mailer
+}
+
+func newRouterWithAuthAndTokens(t *testing.T) (*chi.Mux, *stubMailer) {
+	return newRouterWithAuth(t)
+}
+
+func newRouterWithAuthInternal(t *testing.T) (*chi.Mux, *stubMailer, *auth.Service) {
 	t.Helper()
 	d, err := sqlite.Open(sqlite.Options{Path: filepath.Join(t.TempDir(), "t.db")})
 	require.NoError(t, err)
@@ -56,7 +65,8 @@ func newRouterWithAuth(t *testing.T) (*chi.Mux, *stubMailer) {
 
 	r := chi.NewRouter()
 	r.Mount("/api/auth", AuthRoutes(svc))
-	return r, mailer
+	r.Mount("/api/tokens", APITokenRoutes(svc))
+	return r, mailer, svc
 }
 
 func doJSON(t *testing.T, r http.Handler, method, path string, body any, headers ...[2]string) *httptest.ResponseRecorder {
