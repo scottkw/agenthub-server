@@ -20,7 +20,6 @@ type OAuthProviderWiring struct {
 func OAuthRoutes(svc *auth.Service, wirings []OAuthProviderWiring) http.Handler {
 	r := chi.NewRouter()
 	for _, w := range wirings {
-		w := w
 		osvc := auth.NewOAuthService(svc, auth.OAuthServiceConfig{
 			Provider:    w.Provider,
 			OAuth2:      w.OAuth2,
