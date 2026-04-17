@@ -254,3 +254,6 @@ func firstNonEmpty(ss ...string) string {
 	}
 	return ""
 }
+
+// DB returns the underlying *sql.DB — same semantics as Service.DB.
+func (o *OAuthService) DB() *sql.DB { return o.svc.cfg.DB }

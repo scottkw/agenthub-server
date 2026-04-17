@@ -297,6 +297,10 @@ func tenancyAddMembershipTx(ctx context.Context, tx *sql.Tx, m tenancy.Membershi
 	return nil
 }
 
+// DB exposes the underlying *sql.DB for subsystems that need direct access
+// (e.g. OAuth state store from the api package). Intentionally narrow.
+func (s *Service) DB() *sql.DB { return s.cfg.DB }
+
 // slugify makes a URL-safe account slug from the account name; falls back to
 // the account id prefix if the name is empty or produces an empty slug.
 func slugify(name, accountID string) string {
