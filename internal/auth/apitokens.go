@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -54,7 +55,7 @@ func CreateAPIToken(ctx context.Context, db *sql.DB, in APITokenInput) (string, 
 		for _, s := range in.Scope {
 			parts = append(parts, fmt.Sprintf("%q", s))
 		}
-		scopeJSON = "[" + joinComma(parts) + "]"
+		scopeJSON = "[" + strings.Join(parts, ",") + "]"
 	}
 
 	var expiresAt any
@@ -184,15 +185,4 @@ func ListAPITokens(ctx context.Context, db *sql.DB, accountID, userID string) ([
 		out = append(out, rec)
 	}
 	return out, rows.Err()
-}
-
-func joinComma(ss []string) string {
-	if len(ss) == 0 {
-		return ""
-	}
-	out := ss[0]
-	for _, s := range ss[1:] {
-		out += "," + s
-	}
-	return out
 }
