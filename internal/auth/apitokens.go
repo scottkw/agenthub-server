@@ -42,12 +42,11 @@ func CreateAPIToken(ctx context.Context, db *sql.DB, in APITokenInput) (string, 
 		return "", APIToken{}, errors.New("CreateAPIToken: ID, AccountID, UserID required")
 	}
 
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", APIToken{}, fmt.Errorf("rand: %w", err)
+	raw, err := GenerateAPITokenRaw()
+	if err != nil {
+		return "", APIToken{}, err
 	}
-	raw := apiTokenPrefix + base64.RawURLEncoding.EncodeToString(buf)
-	hash := sha256Hex(raw)
+	hash := HashAPIToken(raw)
 
 	scopeJSON := `[]`
 	if len(in.Scope) > 0 {
@@ -68,7 +67,7 @@ func CreateAPIToken(ctx context.Context, db *sql.DB, in APITokenInput) (string, 
 		deviceID = in.DeviceID
 	}
 
-	_, err := db.ExecContext(ctx, `
+	_, err = db.ExecContext(ctx, `
 		INSERT INTO api_tokens (id, account_id, user_id, device_id, name, token_hash, scope, expires_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		in.ID, in.AccountID, in.UserID, deviceID, in.Name, hash, scopeJSON, expiresAt,
@@ -144,6 +143,23 @@ func RevokeAPIToken(ctx context.Context, db *sql.DB, id string) error {
 		return fmt.Errorf("RevokeAPIToken: %w", err)
 	}
 	return nil
+}
+
+// GenerateAPITokenRaw returns a fresh raw token with the ahs_ prefix.
+// Exposed so callers that need to insert an api_tokens row inside a
+// *sql.Tx (e.g. devices.ClaimDevice) can reuse our format.
+func GenerateAPITokenRaw() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("rand: %w", err)
+	}
+	return apiTokenPrefix + base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// HashAPIToken returns the hex-encoded sha256 of raw, matching the
+// storage format used by CreateAPIToken / LookupAPIToken.
+func HashAPIToken(raw string) string {
+	return sha256Hex(raw)
 }
 
 // ListAPITokens returns all non-revoked tokens for a given (account, user).
