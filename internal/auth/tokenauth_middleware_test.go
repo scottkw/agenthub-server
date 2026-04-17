@@ -65,3 +65,29 @@ func TestRequireAuthOrToken_RejectsNeither(t *testing.T) {
 	h.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusUnauthorized, rr.Code)
 }
+
+func TestRequireAuthOrToken_InjectsDeviceID(t *testing.T) {
+	db := withTestDB(t)
+	key, err := LoadOrCreateJWTKey(context.Background(), db)
+	require.NoError(t, err)
+	signer := NewJWTSigner(key, "test")
+
+	raw, rec, err := CreateAPIToken(context.Background(), db, APITokenInput{
+		ID: "tok1", AccountID: "acct1", UserID: "u1", DeviceID: "dev1", Name: "d",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "dev1", rec.DeviceID)
+
+	var sawDeviceID string
+	h := RequireAuthOrToken(signer, db)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawDeviceID = DeviceID(r.Context())
+	}))
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Token "+raw)
+	h.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	require.Equal(t, "dev1", sawDeviceID)
+}

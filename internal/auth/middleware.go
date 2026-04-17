@@ -13,6 +13,7 @@ const (
 	ctxUserID ctxKey = iota
 	ctxAccountID
 	ctxSessionID
+	ctxDeviceID
 )
 
 // RequireAuth is HTTP middleware that validates a Bearer JWT, checks that the
@@ -49,6 +50,7 @@ func RequireAuth(signer *JWTSigner, db *sql.DB) func(http.Handler) http.Handler 
 func UserID(ctx context.Context) string    { return ctxString(ctx, ctxUserID) }
 func AccountID(ctx context.Context) string { return ctxString(ctx, ctxAccountID) }
 func SessionID(ctx context.Context) string { return ctxString(ctx, ctxSessionID) }
+func DeviceID(ctx context.Context) string  { return ctxString(ctx, ctxDeviceID) }
 
 func ctxString(ctx context.Context, k ctxKey) string {
 	if v, ok := ctx.Value(k).(string); ok {

@@ -49,6 +49,9 @@ func RequireAuthOrToken(signer *JWTSigner, db *sql.DB) func(http.Handler) http.H
 				ctx := context.WithValue(r.Context(), ctxUserID, rec.UserID)
 				ctx = context.WithValue(ctx, ctxAccountID, rec.AccountID)
 				ctx = context.WithValue(ctx, ctxSessionID, "api-token:"+rec.ID)
+				if rec.DeviceID != "" {
+					ctx = context.WithValue(ctx, ctxDeviceID, rec.DeviceID)
+				}
 				next.ServeHTTP(w, r.WithContext(ctx))
 			default:
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
