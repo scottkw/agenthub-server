@@ -35,16 +35,35 @@ const (
 	TLSModeOff  TLSMode = "off"
 )
 
+type OAuthConfigGroup struct {
+	Google OAuthProviderConfig `yaml:"google"`
+	GitHub OAuthProviderConfig `yaml:"github"`
+}
+
+type OAuthProviderConfig struct {
+	ClientID        string `yaml:"client_id"`
+	ClientSecret    string `yaml:"client_secret"`
+	ClientSecretEnv string `yaml:"client_secret_env"`
+	RedirectURL     string `yaml:"redirect_url"`
+}
+
+type RateLimitConfig struct {
+	RequestsPerSecond float64 `yaml:"requests_per_second"`
+	Burst             int     `yaml:"burst"`
+}
+
 type Config struct {
-	Mode     Mode       `yaml:"mode"`
-	Hostname string     `yaml:"hostname"`
-	DataDir  string     `yaml:"data_dir"`
-	HTTP     HTTPConfig `yaml:"http"`
-	TLS      TLSConfig  `yaml:"tls"`
-	DB       DBConfig   `yaml:"db"`
-	Obs      ObsConfig  `yaml:"observability"`
-	Mail     MailConfig `yaml:"mail"`
-	Auth     AuthConfig `yaml:"auth"`
+	Mode      Mode             `yaml:"mode"`
+	Hostname  string           `yaml:"hostname"`
+	DataDir   string           `yaml:"data_dir"`
+	HTTP      HTTPConfig       `yaml:"http"`
+	TLS       TLSConfig        `yaml:"tls"`
+	DB        DBConfig         `yaml:"db"`
+	Obs       ObsConfig        `yaml:"observability"`
+	Mail      MailConfig       `yaml:"mail"`
+	Auth      AuthConfig       `yaml:"auth"`
+	OAuth     OAuthConfigGroup `yaml:"oauth"`
+	RateLimit RateLimitConfig  `yaml:"rate_limit"`
 }
 
 type HTTPConfig struct {
@@ -119,6 +138,10 @@ func Default() Config {
 			SessionTTL:       24 * time.Hour,
 			EmailVerifyTTL:   24 * time.Hour,
 			PasswordResetTTL: time.Hour,
+		},
+		RateLimit: RateLimitConfig{
+			RequestsPerSecond: 5,
+			Burst:             20,
 		},
 	}
 }
@@ -223,6 +246,34 @@ func applyEnv(c *Config) {
 	if c.Mail.SMTP.PasswordEnv != "" {
 		if v := os.Getenv(c.Mail.SMTP.PasswordEnv); v != "" {
 			c.Mail.SMTP.Password = v
+		}
+	}
+	if v := os.Getenv("AGENTHUB_OAUTH_GOOGLE_CLIENT_ID"); v != "" {
+		c.OAuth.Google.ClientID = v
+	}
+	if v := os.Getenv("AGENTHUB_OAUTH_GOOGLE_CLIENT_SECRET"); v != "" {
+		c.OAuth.Google.ClientSecret = v
+	}
+	if v := os.Getenv("AGENTHUB_OAUTH_GOOGLE_REDIRECT_URL"); v != "" {
+		c.OAuth.Google.RedirectURL = v
+	}
+	if v := os.Getenv("AGENTHUB_OAUTH_GITHUB_CLIENT_ID"); v != "" {
+		c.OAuth.GitHub.ClientID = v
+	}
+	if v := os.Getenv("AGENTHUB_OAUTH_GITHUB_CLIENT_SECRET"); v != "" {
+		c.OAuth.GitHub.ClientSecret = v
+	}
+	if v := os.Getenv("AGENTHUB_OAUTH_GITHUB_REDIRECT_URL"); v != "" {
+		c.OAuth.GitHub.RedirectURL = v
+	}
+	if c.OAuth.Google.ClientSecretEnv != "" {
+		if v := os.Getenv(c.OAuth.Google.ClientSecretEnv); v != "" {
+			c.OAuth.Google.ClientSecret = v
+		}
+	}
+	if c.OAuth.GitHub.ClientSecretEnv != "" {
+		if v := os.Getenv(c.OAuth.GitHub.ClientSecretEnv); v != "" {
+			c.OAuth.GitHub.ClientSecret = v
 		}
 	}
 }

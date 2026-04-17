@@ -15,6 +15,9 @@ import (
 	"syscall"
 
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/github"
+	"golang.org/x/oauth2/google"
 
 	"github.com/scottkw/agenthub-server/internal/api"
 	"github.com/scottkw/agenthub-server/internal/auth"
@@ -23,6 +26,7 @@ import (
 	"github.com/scottkw/agenthub-server/internal/db/migrations"
 	"github.com/scottkw/agenthub-server/internal/db/sqlite"
 	"github.com/scottkw/agenthub-server/internal/httpfront"
+	"github.com/scottkw/agenthub-server/internal/httpmw"
 	"github.com/scottkw/agenthub-server/internal/mail"
 	"github.com/scottkw/agenthub-server/internal/obs"
 	"github.com/scottkw/agenthub-server/internal/supervisor"
@@ -77,7 +81,46 @@ func run() error {
 
 	router := chi.NewRouter()
 	router.Mount("/healthz", api.NewHealthHandler(db, version))
-	router.Mount("/api/auth", api.AuthRoutes(authSvc))
+
+	rl := httpmw.NewRateLimit(httpmw.RateLimitConfig{
+		RequestsPerSecond: cfg.RateLimit.RequestsPerSecond,
+		Burst:             cfg.RateLimit.Burst,
+	})
+	idem := httpmw.NewIdempotency(httpmw.IdempotencyConfig{DB: db.SQL()})
+	router.With(rl, idem).Mount("/api/auth", api.AuthRoutes(authSvc))
+
+	var wirings []api.OAuthProviderWiring
+	if cfg.OAuth.Google.ClientID != "" {
+		wirings = append(wirings, api.OAuthProviderWiring{
+			Provider: auth.OAuthProviderGoogle,
+			OAuth2: &oauth2.Config{
+				ClientID:     cfg.OAuth.Google.ClientID,
+				ClientSecret: cfg.OAuth.Google.ClientSecret,
+				RedirectURL:  cfg.OAuth.Google.RedirectURL,
+				Scopes:       []string{"openid", "email", "profile"},
+				Endpoint:     google.Endpoint,
+			},
+			UserInfoURL: "https://openidconnect.googleapis.com/v1/userinfo",
+		})
+	}
+	if cfg.OAuth.GitHub.ClientID != "" {
+		wirings = append(wirings, api.OAuthProviderWiring{
+			Provider: auth.OAuthProviderGitHub,
+			OAuth2: &oauth2.Config{
+				ClientID:     cfg.OAuth.GitHub.ClientID,
+				ClientSecret: cfg.OAuth.GitHub.ClientSecret,
+				RedirectURL:  cfg.OAuth.GitHub.RedirectURL,
+				Scopes:       []string{"user:email"},
+				Endpoint:     github.Endpoint,
+			},
+			UserInfoURL: "https://api.github.com/user",
+		})
+	}
+	if len(wirings) > 0 {
+		router.With(rl).Mount("/api/auth/oauth", api.OAuthRoutes(authSvc, wirings))
+	}
+
+	router.Mount("/api/tokens", api.APITokenRoutes(authSvc))
 
 	front, err := newFrontend(cfg, router)
 	if err != nil {
