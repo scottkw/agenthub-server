@@ -25,6 +25,7 @@ import (
 	dbpkg "github.com/scottkw/agenthub-server/internal/db"
 	"github.com/scottkw/agenthub-server/internal/db/migrations"
 	"github.com/scottkw/agenthub-server/internal/db/sqlite"
+	"github.com/scottkw/agenthub-server/internal/devices"
 	"github.com/scottkw/agenthub-server/internal/httpfront"
 	"github.com/scottkw/agenthub-server/internal/httpmw"
 	"github.com/scottkw/agenthub-server/internal/mail"
@@ -79,6 +80,10 @@ func run() error {
 		return fmt.Errorf("build auth service: %w", err)
 	}
 
+	// Plan 04 uses StubHeadscaler; Plan 05 will swap in the real embedded
+	// Headscale integration.
+	headscaler := devices.StubHeadscaler{}
+
 	router := chi.NewRouter()
 	router.Mount("/healthz", api.NewHealthHandler(db, version))
 
@@ -121,6 +126,14 @@ func run() error {
 	}
 
 	router.Mount("/api/tokens", api.APITokenRoutes(authSvc))
+
+	// /api/devices: claim is unauthenticated (pair code authenticates) but
+	// is rate-limited to slow brute-force of the code. Other endpoints use
+	// the router's own auth middleware.
+	router.With(rl).Mount("/api/devices", api.DeviceRoutes(authSvc, headscaler))
+
+	// /api/sessions: all endpoints are authed; no rate-limit (machine traffic).
+	router.Mount("/api/sessions", api.SessionRoutes(authSvc))
 
 	front, err := newFrontend(cfg, router)
 	if err != nil {
