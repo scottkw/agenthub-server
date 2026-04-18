@@ -52,6 +52,19 @@ type RateLimitConfig struct {
 	Burst             int     `yaml:"burst"`
 }
 
+type HeadscaleConfig struct {
+	Enabled           bool          `yaml:"enabled"`
+	BinaryPath        string        `yaml:"binary_path"` // path to the `headscale` executable
+	DataDir           string        `yaml:"data_dir"`    // where Headscale stores its own SQLite + noise keys
+	ServerURL         string        `yaml:"server_url"`  // e.g. https://<hostname>/headscale — public URL embedded in tailnet configs
+	ListenAddr        string        `yaml:"listen_addr"` // Headscale's HTTP listen — loopback only
+	MetricsListenAddr string        `yaml:"metrics_listen_addr"`
+	GRPCListenAddr    string        `yaml:"grpc_listen_addr"` // Required even with UNIX socket; loopback + grpc_allow_insecure=true
+	UnixSocket        string        `yaml:"unix_socket"`
+	ShutdownTimeout   time.Duration `yaml:"shutdown_timeout"`
+	ReadyTimeout      time.Duration `yaml:"ready_timeout"`
+}
+
 type Config struct {
 	Mode      Mode             `yaml:"mode"`
 	Hostname  string           `yaml:"hostname"`
@@ -64,6 +77,7 @@ type Config struct {
 	Auth      AuthConfig       `yaml:"auth"`
 	OAuth     OAuthConfigGroup `yaml:"oauth"`
 	RateLimit RateLimitConfig  `yaml:"rate_limit"`
+	Headscale HeadscaleConfig  `yaml:"headscale"`
 }
 
 type HTTPConfig struct {
@@ -143,6 +157,18 @@ func Default() Config {
 			RequestsPerSecond: 5,
 			Burst:             20,
 		},
+		Headscale: HeadscaleConfig{
+			Enabled:           false, // opt-in for Plan 05; Plan 04 StubHeadscaler is the default
+			BinaryPath:        "./bin/headscale",
+			DataDir:           "", // derived from top-level DataDir at load time
+			ServerURL:         "http://127.0.0.1:18081",
+			ListenAddr:        "127.0.0.1:18081",
+			MetricsListenAddr: "", // disabled by default
+			GRPCListenAddr:    "127.0.0.1:50443",
+			UnixSocket:        "", // derived from DataDir at load time
+			ShutdownTimeout:   10 * time.Second,
+			ReadyTimeout:      10 * time.Second,
+		},
 	}
 }
 
@@ -177,6 +203,14 @@ func Load(opts LoadOptions) (Config, error) {
 	}
 
 	applyEnv(&c)
+
+	// Derive Headscale paths from DataDir if the caller didn't override them.
+	if c.Headscale.DataDir == "" {
+		c.Headscale.DataDir = filepath.Join(c.DataDir, "headscale")
+	}
+	if c.Headscale.UnixSocket == "" {
+		c.Headscale.UnixSocket = filepath.Join(c.Headscale.DataDir, "headscale.sock")
+	}
 
 	return c, nil
 }
@@ -276,6 +310,24 @@ func applyEnv(c *Config) {
 			c.OAuth.GitHub.ClientSecret = v
 		}
 	}
+	if v := os.Getenv("AGENTHUB_HEADSCALE_ENABLED"); v != "" {
+		c.Headscale.Enabled = v == "1" || strings.EqualFold(v, "true")
+	}
+	if v := os.Getenv("AGENTHUB_HEADSCALE_BINARY_PATH"); v != "" {
+		c.Headscale.BinaryPath = v
+	}
+	if v := os.Getenv("AGENTHUB_HEADSCALE_DATA_DIR"); v != "" {
+		c.Headscale.DataDir = v
+	}
+	if v := os.Getenv("AGENTHUB_HEADSCALE_SERVER_URL"); v != "" {
+		c.Headscale.ServerURL = v
+	}
+	if v := os.Getenv("AGENTHUB_HEADSCALE_LISTEN_ADDR"); v != "" {
+		c.Headscale.ListenAddr = v
+	}
+	if v := os.Getenv("AGENTHUB_HEADSCALE_UNIX_SOCKET"); v != "" {
+		c.Headscale.UnixSocket = v
+	}
 }
 
 // Validate returns an error describing any invalid or inconsistent config.
@@ -315,6 +367,18 @@ func (c Config) Validate() error {
 		}
 	default:
 		errs = append(errs, fmt.Sprintf("tls.mode: invalid value %q", c.TLS.Mode))
+	}
+
+	if c.Headscale.Enabled {
+		if c.Headscale.BinaryPath == "" {
+			errs = append(errs, "headscale.binary_path: required when headscale.enabled")
+		}
+		if c.Headscale.ServerURL == "" {
+			errs = append(errs, "headscale.server_url: required when headscale.enabled")
+		}
+		if c.Headscale.ListenAddr == "" {
+			errs = append(errs, "headscale.listen_addr: required when headscale.enabled")
+		}
 	}
 
 	if len(errs) == 0 {

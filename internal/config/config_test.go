@@ -78,3 +78,22 @@ func TestConfig_MailAndAuthDefaults(t *testing.T) {
 	require.Equal(t, 24*time.Hour, c.Auth.SessionTTL)
 	require.Equal(t, time.Hour, c.Auth.PasswordResetTTL)
 }
+
+func TestConfig_HeadscaleDefaults(t *testing.T) {
+	c, err := Load(LoadOptions{})
+	require.NoError(t, err)
+	require.False(t, c.Headscale.Enabled)
+	require.Equal(t, "./bin/headscale", c.Headscale.BinaryPath)
+	require.NotEmpty(t, c.Headscale.DataDir)
+	require.NotEmpty(t, c.Headscale.UnixSocket)
+	require.Equal(t, "127.0.0.1:18081", c.Headscale.ListenAddr)
+}
+
+func TestConfig_HeadscaleValidation(t *testing.T) {
+	c := Default()
+	c.Headscale.Enabled = true
+	c.Headscale.BinaryPath = ""
+	err := c.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "headscale.binary_path")
+}
