@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -26,6 +28,7 @@ import (
 	"github.com/scottkw/agenthub-server/internal/db/migrations"
 	"github.com/scottkw/agenthub-server/internal/db/sqlite"
 	"github.com/scottkw/agenthub-server/internal/devices"
+	"github.com/scottkw/agenthub-server/internal/headscale"
 	"github.com/scottkw/agenthub-server/internal/httpfront"
 	"github.com/scottkw/agenthub-server/internal/httpmw"
 	"github.com/scottkw/agenthub-server/internal/mail"
@@ -80,9 +83,13 @@ func run() error {
 		return fmt.Errorf("build auth service: %w", err)
 	}
 
-	// Plan 04 uses StubHeadscaler; Plan 05 will swap in the real embedded
-	// Headscale integration.
-	headscaler := devices.StubHeadscaler{}
+	headscaler, hsSupervisor, hsClient, err := buildHeadscaler(ctx, cfg, db, logger)
+	if err != nil {
+		return fmt.Errorf("headscale: %w", err)
+	}
+	if hsClient != nil {
+		defer hsClient.Close()
+	}
 
 	router := chi.NewRouter()
 	router.Mount("/healthz", api.NewHealthHandler(db, version))
@@ -135,22 +142,79 @@ func run() error {
 	// /api/sessions: all endpoints are authed; no rate-limit (machine traffic).
 	router.Mount("/api/sessions", api.SessionRoutes(authSvc))
 
+	if cfg.Headscale.Enabled {
+		hsURL, err := url.Parse("http://" + cfg.Headscale.ListenAddr)
+		if err != nil {
+			return fmt.Errorf("parse headscale listen_addr: %w", err)
+		}
+		proxy := httputil.NewSingleHostReverseProxy(hsURL)
+		router.Mount("/headscale", http.StripPrefix("/headscale", proxy))
+	}
+
 	front, err := newFrontend(cfg, router)
 	if err != nil {
 		return fmt.Errorf("http frontend: %w", err)
 	}
 
-	err = supervisor.Run(ctx, []supervisor.Service{
-		{
-			Name:  "httpfront",
-			Start: front.Start,
-		},
-	})
+	services := []supervisor.Service{
+		{Name: "httpfront", Start: front.Start},
+	}
+	if hsSupervisor != nil {
+		services = append(services, supervisor.Service{
+			Name: "headscale",
+			Start: func(ctx context.Context) error {
+				return hsSupervisor.Wait(ctx)
+			},
+		})
+	}
+
+	err = supervisor.Run(ctx, services)
 	if err != nil && err != context.Canceled {
 		return err
 	}
 	logger.Info("shutdown complete")
 	return nil
+}
+
+// buildHeadscaler returns the Headscaler implementation the api package
+// should use. When Headscale is disabled (cfg.Headscale.Enabled=false)
+// we keep the StubHeadscaler and return nil for the supervisor/client.
+// When enabled we start the subprocess, wait for /health, dial the
+// gRPC UNIX socket, and return a *headscale.Service.
+func buildHeadscaler(ctx context.Context, cfg config.Config, db dbpkg.DB, log *slog.Logger) (devices.Headscaler, *headscale.Supervisor, *headscale.Client, error) {
+	if !cfg.Headscale.Enabled {
+		log.Info("headscale disabled (StubHeadscaler in use)")
+		return devices.StubHeadscaler{}, nil, nil, nil
+	}
+
+	opts := headscale.Options{
+		BinaryPath:      cfg.Headscale.BinaryPath,
+		DataDir:         cfg.Headscale.DataDir,
+		ServerURL:       cfg.Headscale.ServerURL,
+		ListenAddr:      cfg.Headscale.ListenAddr,
+		GRPCListenAddr:  cfg.Headscale.GRPCListenAddr,
+		UnixSocket:      cfg.Headscale.UnixSocket,
+		ShutdownTimeout: cfg.Headscale.ShutdownTimeout,
+		ReadyTimeout:    cfg.Headscale.ReadyTimeout,
+	}
+	sv := headscale.NewSupervisor(opts, "http://"+cfg.Headscale.ListenAddr).WithLogger(log)
+	if err := sv.Start(ctx); err != nil {
+		return nil, nil, nil, fmt.Errorf("start supervisor: %w", err)
+	}
+
+	client, err := headscale.Dial(cfg.Headscale.UnixSocket)
+	if err != nil {
+		_ = sv.Wait(ctx) // best-effort
+		return nil, nil, nil, fmt.Errorf("dial grpc: %w", err)
+	}
+
+	svc := &headscale.Service{
+		DB:         db.SQL(),
+		Client:     client,
+		ServerURL:  cfg.Headscale.ServerURL,
+		UserPrefix: "u-",
+	}
+	return svc, sv, client, nil
 }
 
 func openDB(cfg config.Config) (dbpkg.DB, error) {
