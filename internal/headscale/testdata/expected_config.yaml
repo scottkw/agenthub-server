@@ -1,0 +1,32 @@
+server_url: http://127.0.0.1:18081
+listen_addr: 127.0.0.1:18081
+metrics_listen_addr: ""
+grpc_listen_addr: 127.0.0.1:50443
+grpc_allow_insecure: true
+unix_socket: /tmp/fixture/hs/headscale.sock
+unix_socket_permission: "0770"
+disable_check_updates: true
+noise:
+  private_key_path: /tmp/fixture/hs/noise_private.key
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+derp:
+  urls:
+    - https://controlplane.tailscale.com/derpmap/default
+  auto_update_enabled: true
+  update_frequency: 24h
+database:
+  type: sqlite
+  sqlite:
+    path: /tmp/fixture/hs/db.sqlite
+    write_ahead_log: true
+log:
+  level: info
+  format: json
+policy:
+  mode: file
+  path: ""
+dns:
+  magic_dns: false
+  base_domain: ""
