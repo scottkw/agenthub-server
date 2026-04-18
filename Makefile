@@ -1,4 +1,4 @@
-.PHONY: build test lint run clean
+.PHONY: build test lint run clean headscale-bin
 
 BINARY := bin/agenthub-server
 PKG := ./...
@@ -18,3 +18,6 @@ run: build
 
 clean:
 	rm -rf bin/ coverage.out
+
+headscale-bin:
+	./scripts/fetch-headscale.sh
