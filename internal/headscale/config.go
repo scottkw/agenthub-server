@@ -67,5 +67,8 @@ policy:
   path: ""
 dns:
   magic_dns: false
+  override_local_dns: false
   base_domain: ""
+  nameservers:
+    global: []
 `))
