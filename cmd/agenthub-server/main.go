@@ -137,7 +137,7 @@ func run() error {
 	// /api/devices: claim is unauthenticated (pair code authenticates) but
 	// is rate-limited to slow brute-force of the code. Other endpoints use
 	// the router's own auth middleware.
-	router.With(rl).Mount("/api/devices", api.DeviceRoutes(authSvc, headscaler))
+	router.With(rl).Mount("/api/devices", api.DeviceRoutes(authSvc, headscaler, nil))
 
 	// /api/sessions: all endpoints are authed; no rate-limit (machine traffic).
 	router.Mount("/api/sessions", api.SessionRoutes(authSvc))

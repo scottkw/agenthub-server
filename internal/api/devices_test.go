@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/scottkw/agenthub-server/internal/devices"
+	"github.com/scottkw/agenthub-server/internal/realtime"
 )
 
 // newRouterWithDevices builds a test router with /api/auth, /api/tokens, and
@@ -18,7 +20,7 @@ import (
 func newRouterWithDevices(t *testing.T) (*chi.Mux, *stubMailer) {
 	t.Helper()
 	r, mailer, svc := newRouterWithAuthInternal(t)
-	r.Mount("/api/devices", DeviceRoutes(svc, devices.StubHeadscaler{}))
+	r.Mount("/api/devices", DeviceRoutes(svc, devices.StubHeadscaler{}, nil))
 	return r, mailer
 }
 
@@ -148,4 +150,51 @@ func TestDevices_SoftDelete(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &list))
 	require.Len(t, list.Devices, 0)
+}
+
+// capturingPublisher records every event; lives alongside the other
+// test helpers in this file.
+type capturingPublisher struct {
+	mu     sync.Mutex
+	events []capturedEvent
+}
+
+type capturedEvent struct {
+	AccountID string
+	Event     realtime.Event
+}
+
+func (c *capturingPublisher) Publish(accountID string, event realtime.Event) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.events = append(c.events, capturedEvent{AccountID: accountID, Event: event})
+}
+
+func TestDevices_ClaimFiresDeviceCreatedEvent(t *testing.T) {
+	r, mailer, svc := newRouterWithAuthInternal(t)
+	pub := &capturingPublisher{}
+	r.Mount("/api/devices", DeviceRoutes(svc, devices.StubHeadscaler{}, pub))
+
+	jwt := signUpAndLogin(t, r, mailer, "evt@example.com", "password9", "Evt")
+	authH := [2]string{"Authorization", "Bearer " + jwt}
+
+	rr := doJSON(t, r, "POST", "/api/devices/pair-code", nil, authH)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	var pair struct {
+		Code string `json:"code"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &pair))
+
+	rr = doJSON(t, r, "POST", "/api/devices/claim", map[string]string{
+		"code": pair.Code, "name": "evt-laptop", "platform": "darwin",
+	})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+	require.Len(t, pub.events, 1, "expected exactly one published event")
+	ev := pub.events[0]
+	require.Equal(t, "device.created", ev.Event.Type)
+	require.Equal(t, "evt-laptop", ev.Event.Data["name"])
+	require.NotEmpty(t, ev.AccountID)
 }

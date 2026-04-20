@@ -18,7 +18,7 @@ import (
 func routerWithSvc(t *testing.T) (*chi.Mux, *stubMailer, *auth.Service) {
 	t.Helper()
 	r, mailer, svc := newRouterWithAuthInternal(t)
-	r.Mount("/api/devices", DeviceRoutes(svc, devices.StubHeadscaler{}))
+	r.Mount("/api/devices", DeviceRoutes(svc, devices.StubHeadscaler{}, nil))
 	r.Mount("/api/sessions", SessionRoutes(svc))
 	return r, mailer, svc
 }

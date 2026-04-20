@@ -10,16 +10,17 @@ import (
 
 	"github.com/scottkw/agenthub-server/internal/auth"
 	"github.com/scottkw/agenthub-server/internal/devices"
+	"github.com/scottkw/agenthub-server/internal/realtime"
 )
 
 // DeviceRoutes mounts the /api/devices/* endpoints. The claim endpoint is
 // NOT behind auth (the pair code authenticates); mount-time caller is
 // expected to apply rate-limit middleware around the whole router.
-func DeviceRoutes(svc *auth.Service, hs devices.Headscaler) http.Handler {
+func DeviceRoutes(svc *auth.Service, hs devices.Headscaler, pub realtime.Publisher) http.Handler {
 	r := chi.NewRouter()
 
 	// Public (code-authenticated): claim.
-	r.Post("/claim", claimDeviceHandler(svc, hs))
+	r.Post("/claim", claimDeviceHandler(svc, hs, pub))
 
 	// Bearer/Token authed: everything else.
 	r.Group(func(sub chi.Router) {
@@ -58,7 +59,7 @@ type claimDeviceReq struct {
 	AppVersion string `json:"app_version"`
 }
 
-func claimDeviceHandler(svc *auth.Service, hs devices.Headscaler) http.HandlerFunc {
+func claimDeviceHandler(svc *auth.Service, hs devices.Headscaler, pub realtime.Publisher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in claimDeviceReq
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -75,6 +76,18 @@ func claimDeviceHandler(svc *auth.Service, hs devices.Headscaler) http.HandlerFu
 			}
 			WriteError(w, http.StatusInternalServerError, "claim_failed", err.Error())
 			return
+		}
+		if pub != nil {
+			pub.Publish(out.Device.AccountID, realtime.Event{
+				Type: "device.created",
+				Data: map[string]any{
+					"device_id":   out.Device.ID,
+					"user_id":     out.Device.UserID,
+					"name":        out.Device.Name,
+					"platform":    out.Device.Platform,
+					"app_version": out.Device.AppVersion,
+				},
+			})
 		}
 		WriteJSON(w, http.StatusOK, map[string]any{
 			"device_id": out.Device.ID,
