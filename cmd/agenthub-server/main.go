@@ -33,6 +33,7 @@ import (
 	"github.com/scottkw/agenthub-server/internal/httpmw"
 	"github.com/scottkw/agenthub-server/internal/mail"
 	"github.com/scottkw/agenthub-server/internal/obs"
+	"github.com/scottkw/agenthub-server/internal/realtime"
 	"github.com/scottkw/agenthub-server/internal/supervisor"
 )
 
@@ -91,6 +92,9 @@ func run() error {
 		defer hsClient.Close()
 	}
 
+	hub := realtime.NewInMemoryHub(realtime.HubConfig{}).WithLogger(logger)
+	defer hub.Close()
+
 	router := chi.NewRouter()
 	router.Mount("/healthz", api.NewHealthHandler(db, version))
 
@@ -137,10 +141,13 @@ func run() error {
 	// /api/devices: claim is unauthenticated (pair code authenticates) but
 	// is rate-limited to slow brute-force of the code. Other endpoints use
 	// the router's own auth middleware.
-	router.With(rl).Mount("/api/devices", api.DeviceRoutes(authSvc, headscaler, nil))
+	router.With(rl).Mount("/api/devices", api.DeviceRoutes(authSvc, headscaler, hub))
 
 	// /api/sessions: all endpoints are authed; no rate-limit (machine traffic).
 	router.Mount("/api/sessions", api.SessionRoutes(authSvc))
+
+	// /ws: realtime event stream per account.
+	router.Handle("/ws", api.WSRoutes(authSvc, hub))
 
 	if cfg.Headscale.Enabled {
 		hsURL, err := url.Parse("http://" + cfg.Headscale.ListenAddr)
