@@ -149,6 +149,11 @@ func run() error {
 		}
 		proxy := httputil.NewSingleHostReverseProxy(hsURL)
 		router.Mount("/headscale", http.StripPrefix("/headscale", proxy))
+
+		if cfg.Headscale.DERPEnabled {
+			derpProxy := httputil.NewSingleHostReverseProxy(hsURL)
+			router.Mount("/derp", derpProxy)
+		}
 	}
 
 	front, err := newFrontend(cfg, router)
@@ -188,14 +193,22 @@ func buildHeadscaler(ctx context.Context, cfg config.Config, db dbpkg.DB, log *s
 	}
 
 	opts := headscale.Options{
-		BinaryPath:      cfg.Headscale.BinaryPath,
-		DataDir:         cfg.Headscale.DataDir,
-		ServerURL:       cfg.Headscale.ServerURL,
-		ListenAddr:      cfg.Headscale.ListenAddr,
-		GRPCListenAddr:  cfg.Headscale.GRPCListenAddr,
-		UnixSocket:      cfg.Headscale.UnixSocket,
-		ShutdownTimeout: cfg.Headscale.ShutdownTimeout,
-		ReadyTimeout:    cfg.Headscale.ReadyTimeout,
+		BinaryPath:         cfg.Headscale.BinaryPath,
+		DataDir:            cfg.Headscale.DataDir,
+		ServerURL:          cfg.Headscale.ServerURL,
+		ListenAddr:         cfg.Headscale.ListenAddr,
+		GRPCListenAddr:     cfg.Headscale.GRPCListenAddr,
+		UnixSocket:         cfg.Headscale.UnixSocket,
+		ShutdownTimeout:    cfg.Headscale.ShutdownTimeout,
+		ReadyTimeout:       cfg.Headscale.ReadyTimeout,
+		DERPEnabled:        cfg.Headscale.DERPEnabled,
+		DERPRegionID:       cfg.Headscale.DERPRegionID,
+		DERPRegionCode:     cfg.Headscale.DERPRegionCode,
+		DERPRegionName:     cfg.Headscale.DERPRegionName,
+		DERPSTUNListenAddr: cfg.Headscale.DERPSTUNListenAddr,
+		DERPVerifyClients:  cfg.Headscale.DERPVerifyClients,
+		DERPIPv4:           cfg.Headscale.DERPIPv4,
+		DERPIPv6:           cfg.Headscale.DERPIPv6,
 	}
 	sv := headscale.NewSupervisor(opts, "http://"+cfg.Headscale.ListenAddr).WithLogger(log)
 	if err := sv.Start(ctx); err != nil {
@@ -208,11 +221,32 @@ func buildHeadscaler(ctx context.Context, cfg config.Config, db dbpkg.DB, log *s
 		return nil, nil, nil, fmt.Errorf("dial grpc: %w", err)
 	}
 
+	var derpMapJSON string
+	if cfg.Headscale.DERPEnabled {
+		raw, err := headscale.BuildDERPMap(headscale.DERPMapInput{
+			RegionID:   cfg.Headscale.DERPRegionID,
+			RegionCode: cfg.Headscale.DERPRegionCode,
+			RegionName: cfg.Headscale.DERPRegionName,
+			Hostname:   cfg.Headscale.DERPHostname,
+			DERPPort:   cfg.Headscale.DERPPort,
+			STUNPort:   3478,
+			IPv4:       cfg.Headscale.DERPIPv4,
+			IPv6:       cfg.Headscale.DERPIPv6,
+		})
+		if err != nil {
+			_ = client.Close()
+			_ = sv.Wait(ctx)
+			return nil, nil, nil, fmt.Errorf("build derp map: %w", err)
+		}
+		derpMapJSON = string(raw)
+	}
+
 	svc := &headscale.Service{
-		DB:         db.SQL(),
-		Client:     client,
-		ServerURL:  cfg.Headscale.ServerURL,
-		UserPrefix: "u-",
+		DB:          db.SQL(),
+		Client:      client,
+		ServerURL:   cfg.Headscale.ServerURL,
+		DERPMapJSON: derpMapJSON,
+		UserPrefix:  "u-",
 	}
 	return svc, sv, client, nil
 }
