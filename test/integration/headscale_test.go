@@ -203,3 +203,110 @@ func findHeadscaleBinary(t *testing.T) string {
 	t.Skip("headscale binary not found; run `./scripts/fetch-headscale.sh`")
 	return ""
 }
+
+func TestHeadscale_DERP_EndToEnd(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no Windows Headscale binary")
+	}
+
+	hsBin := findHeadscaleBinary(t)
+
+	smtp := newMiniSMTP(t)
+	binary := buildBinary(t)
+	dataDir := t.TempDir()
+
+	// Short socket path (macOS sun_path 104-char limit) — mirror Plan 05 pattern.
+	shortSockDir, err := os.MkdirTemp("", "ahs-derp-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(shortSockDir) })
+	hsSocket := filepath.Join(shortSockDir, "hs.sock")
+
+	cmd := exec.Command(binary)
+	cmd.Env = append(os.Environ(),
+		"AGENTHUB_MODE=solo",
+		"AGENTHUB_HOSTNAME=127.0.0.1",
+		"AGENTHUB_TLS_MODE=off",
+		"AGENTHUB_HTTP_PORT=18186",
+		"AGENTHUB_DATA_DIR="+dataDir,
+		"AGENTHUB_LOG_LEVEL=warn",
+		"AGENTHUB_MAIL_PROVIDER=smtp",
+		"AGENTHUB_MAIL_SMTP_HOST=127.0.0.1",
+		"AGENTHUB_MAIL_SMTP_PORT="+smtp.Port,
+		"AGENTHUB_VERIFY_URL_PREFIX=http://127.0.0.1:18186/api/auth/verify",
+		"AGENTHUB_RESET_URL_PREFIX=http://127.0.0.1:18186/api/auth/reset",
+		"AGENTHUB_HEADSCALE_ENABLED=1",
+		"AGENTHUB_HEADSCALE_BINARY_PATH="+hsBin,
+		"AGENTHUB_HEADSCALE_SERVER_URL=http://127.0.0.1:18286",
+		"AGENTHUB_HEADSCALE_LISTEN_ADDR=127.0.0.1:18286",
+		"AGENTHUB_HEADSCALE_UNIX_SOCKET="+hsSocket,
+		"AGENTHUB_HEADSCALE_DERP_ENABLED=1",
+		"AGENTHUB_HEADSCALE_DERP_HOSTNAME=127.0.0.1",
+		"AGENTHUB_HEADSCALE_DERP_PORT=18186",
+		"AGENTHUB_HEADSCALE_DERP_STUN_LISTEN_ADDR=127.0.0.1:3479", // non-standard port to avoid collision
+	)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		_ = cmd.Process.Signal(os.Interrupt)
+		done := make(chan struct{})
+		go func() { _ = cmd.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(15 * time.Second):
+			_ = cmd.Process.Kill()
+		}
+	})
+
+	base := "http://127.0.0.1:18186"
+	waitReady(t, base+"/healthz")
+
+	// Signup + verify + login.
+	_ = postExpect(t, base+"/api/auth/signup", map[string]string{
+		"email": "derp-e2e@example.com", "password": "topsecretpw", "account_name": "DERP",
+	}, 200)
+	vTok := smtp.WaitForToken(t, "/api/auth/verify", 5*time.Second)
+	_ = postExpect(t, base+"/api/auth/verify", map[string]string{"token": vTok}, 200)
+	loginBody := postExpect(t, base+"/api/auth/login", map[string]string{
+		"email": "derp-e2e@example.com", "password": "topsecretpw",
+	}, 200)
+	var login struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(loginBody, &login))
+
+	req, _ := http.NewRequest("POST", base+"/api/devices/pair-code", nil)
+	req.Header.Set("Authorization", "Bearer "+login.Token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	var pair struct {
+		Code string `json:"code"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&pair))
+
+	claimBody := postExpect(t, base+"/api/devices/claim", map[string]string{
+		"code": pair.Code, "name": "derp-laptop",
+	}, 200)
+	var claim struct {
+		Tailscale struct {
+			DERPMapJSON string `json:"derp_map_json"`
+		} `json:"tailscale"`
+	}
+	require.NoError(t, json.Unmarshal(claimBody, &claim))
+
+	// DERP map must NOT be the empty stub.
+	require.NotEqual(t, `{"Regions":{}}`, claim.Tailscale.DERPMapJSON)
+	require.Contains(t, claim.Tailscale.DERPMapJSON, `"RegionID":999`)
+	require.Contains(t, claim.Tailscale.DERPMapJSON, `"HostName":"127.0.0.1"`)
+
+	// /derp proxy passthrough — any 2xx/3xx response proves the proxy reached
+	// Headscale. (The exact path Headscale serves under /derp varies; "/derp/probe"
+	// is the conventional Tailscale probe path. Any non-error response means the
+	// proxy is wired, which is all we're validating.)
+	probeResp, err := http.Get(base + "/derp/probe")
+	require.NoError(t, err)
+	defer probeResp.Body.Close()
+	require.Less(t, probeResp.StatusCode, 400, "expected /derp/probe to be proxied to Headscale; got %d", probeResp.StatusCode)
+}
