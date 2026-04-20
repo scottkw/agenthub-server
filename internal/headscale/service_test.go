@@ -98,3 +98,21 @@ func TestService_MintPreAuthKey_ReusesLinkedUser(t *testing.T) {
 	require.Len(t, fake.preauths, 1)
 	require.Equal(t, uint64(42), fake.preauths[0].UserID)
 }
+
+func TestService_MintPreAuthKey_UsesDERPMapJSON(t *testing.T) {
+	db := withBridgeTestDB(t)
+	fake := &fakeHSClient{}
+	svc := &Service{
+		DB:          db,
+		Client:      fake,
+		ServerURL:   "https://agenthub.example/headscale",
+		UserPrefix:  "u-",
+		DERPMapJSON: `{"Regions":{"999":{"RegionID":999,"RegionCode":"agenthub","RegionName":"x","Nodes":[]}}}`,
+	}
+
+	out, err := svc.MintPreAuthKey(context.Background(), devices.PreAuthKeyInput{
+		AccountID: "acct1", UserID: "u1", DeviceID: "dev1", TTL: time.Minute,
+	})
+	require.NoError(t, err)
+	require.Equal(t, svc.DERPMapJSON, out.DERPMapJSON)
+}

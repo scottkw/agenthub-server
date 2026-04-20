@@ -24,10 +24,11 @@ type clientAPI interface {
 // devices.Headscaler interface together. Construct one and pass it to
 // api.DeviceRoutes.
 type Service struct {
-	DB         *sql.DB
-	Client     clientAPI
-	ServerURL  string // what we hand to the claiming device as control_url
-	UserPrefix string // name prefix for Headscale users — e.g. "u-" → "u-<our-user-id>"
+	DB          *sql.DB
+	Client      clientAPI
+	ServerURL   string // what we hand to the claiming device as control_url
+	UserPrefix  string // name prefix for Headscale users — e.g. "u-" → "u-<our-user-id>"
+	DERPMapJSON string // JSON-encoded tailcfg.DERPMap; if empty, a stub "{"Regions":{}}" is returned (Plan 04 behavior)
 }
 
 // Compile-time check that *Service satisfies devices.Headscaler.
@@ -49,10 +50,14 @@ func (s *Service) MintPreAuthKey(ctx context.Context, in devices.PreAuthKeyInput
 		return devices.PreAuthKey{}, fmt.Errorf("MintPreAuthKey: %w", err)
 	}
 
+	derpMap := s.DERPMapJSON
+	if derpMap == "" {
+		derpMap = `{"Regions":{}}`
+	}
 	return devices.PreAuthKey{
 		Key:         pak.GetKey(),
 		ControlURL:  s.ServerURL,
-		DERPMapJSON: `{"Regions":{}}`, // Plan 06 replaces this with the real DERP map.
+		DERPMapJSON: derpMap,
 		ExpiresAt:   time.Now().Add(in.TTL),
 	}, nil
 }
