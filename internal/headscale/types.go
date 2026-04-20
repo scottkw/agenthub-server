@@ -28,4 +28,13 @@ type Options struct {
 	UnixSocket      string
 	ShutdownTimeout time.Duration
 	ReadyTimeout    time.Duration
+
+	DERPEnabled        bool
+	DERPRegionID       int
+	DERPRegionCode     string
+	DERPRegionName     string
+	DERPSTUNListenAddr string
+	DERPVerifyClients  bool
+	DERPIPv4           string
+	DERPIPv6           string
 }

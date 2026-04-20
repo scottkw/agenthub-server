@@ -1,4 +1,4 @@
-server_url: http://127.0.0.1:18081
+server_url: https://agenthub.example/headscale
 listen_addr: 127.0.0.1:18081
 metrics_listen_addr: ""
 grpc_listen_addr: 127.0.0.1:50443
@@ -12,9 +12,19 @@ prefixes:
   v4: 100.64.0.0/10
   v6: fd7a:115c:a1e0::/48
 derp:
-  urls:
-    - https://controlplane.tailscale.com/derpmap/default
-  auto_update_enabled: true
+  server:
+    enabled: true
+    region_id: 999
+    region_code: agenthub
+    region_name: AgentHub Embedded DERP
+    verify_clients: true
+    stun_listen_addr: 0.0.0.0:3478
+    private_key_path: /tmp/fixture/hs/derp_server_private.key
+    automatically_add_embedded_derp_region: true
+    ipv4: 198.51.100.1
+    ipv6: 2001:db8::1
+  urls: []
+  auto_update_enabled: false
   update_frequency: 24h
 database:
   type: sqlite
