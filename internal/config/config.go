@@ -63,6 +63,17 @@ type HeadscaleConfig struct {
 	UnixSocket        string        `yaml:"unix_socket"`
 	ShutdownTimeout   time.Duration `yaml:"shutdown_timeout"`
 	ReadyTimeout      time.Duration `yaml:"ready_timeout"`
+
+	DERPEnabled        bool   `yaml:"derp_enabled"`
+	DERPRegionID       int    `yaml:"derp_region_id"`
+	DERPRegionCode     string `yaml:"derp_region_code"`
+	DERPRegionName     string `yaml:"derp_region_name"`
+	DERPSTUNListenAddr string `yaml:"derp_stun_listen_addr"`
+	DERPHostname       string `yaml:"derp_hostname"` // public hostname clients use to reach /derp; defaults to top-level Hostname
+	DERPPort           int    `yaml:"derp_port"`     // usually 443 (HTTPS frontend)
+	DERPIPv4           string `yaml:"derp_ipv4"`
+	DERPIPv6           string `yaml:"derp_ipv6"`
+	DERPVerifyClients  bool   `yaml:"derp_verify_clients"`
 }
 
 type Config struct {
@@ -168,6 +179,17 @@ func Default() Config {
 			UnixSocket:        "", // derived from DataDir at load time
 			ShutdownTimeout:   10 * time.Second,
 			ReadyTimeout:      10 * time.Second,
+
+			DERPEnabled:        false,
+			DERPRegionID:       999,
+			DERPRegionCode:     "agenthub",
+			DERPRegionName:     "AgentHub Embedded DERP",
+			DERPSTUNListenAddr: "0.0.0.0:3478",
+			DERPHostname:       "", // derived from top-level Hostname at load time
+			DERPPort:           443,
+			DERPIPv4:           "",
+			DERPIPv6:           "",
+			DERPVerifyClients:  true,
 		},
 	}
 }
@@ -210,6 +232,9 @@ func Load(opts LoadOptions) (Config, error) {
 	}
 	if c.Headscale.UnixSocket == "" {
 		c.Headscale.UnixSocket = filepath.Join(c.Headscale.DataDir, "headscale.sock")
+	}
+	if c.Headscale.DERPHostname == "" {
+		c.Headscale.DERPHostname = c.Hostname
 	}
 
 	return c, nil
@@ -328,6 +353,34 @@ func applyEnv(c *Config) {
 	if v := os.Getenv("AGENTHUB_HEADSCALE_UNIX_SOCKET"); v != "" {
 		c.Headscale.UnixSocket = v
 	}
+	if v := os.Getenv("AGENTHUB_HEADSCALE_DERP_ENABLED"); v != "" {
+		c.Headscale.DERPEnabled = v == "1" || strings.EqualFold(v, "true")
+	}
+	if v := os.Getenv("AGENTHUB_HEADSCALE_DERP_REGION_ID"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Headscale.DERPRegionID = n
+		}
+	}
+	if v := os.Getenv("AGENTHUB_HEADSCALE_DERP_REGION_CODE"); v != "" {
+		c.Headscale.DERPRegionCode = v
+	}
+	if v := os.Getenv("AGENTHUB_HEADSCALE_DERP_HOSTNAME"); v != "" {
+		c.Headscale.DERPHostname = v
+	}
+	if v := os.Getenv("AGENTHUB_HEADSCALE_DERP_PORT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Headscale.DERPPort = n
+		}
+	}
+	if v := os.Getenv("AGENTHUB_HEADSCALE_DERP_IPV4"); v != "" {
+		c.Headscale.DERPIPv4 = v
+	}
+	if v := os.Getenv("AGENTHUB_HEADSCALE_DERP_IPV6"); v != "" {
+		c.Headscale.DERPIPv6 = v
+	}
+	if v := os.Getenv("AGENTHUB_HEADSCALE_DERP_STUN_LISTEN_ADDR"); v != "" {
+		c.Headscale.DERPSTUNListenAddr = v
+	}
 }
 
 // Validate returns an error describing any invalid or inconsistent config.
@@ -378,6 +431,17 @@ func (c Config) Validate() error {
 		}
 		if c.Headscale.ListenAddr == "" {
 			errs = append(errs, "headscale.listen_addr: required when headscale.enabled")
+		}
+		if c.Headscale.DERPEnabled {
+			if c.Headscale.DERPSTUNListenAddr == "" {
+				errs = append(errs, "headscale.derp_stun_listen_addr: required when headscale.derp_enabled")
+			}
+			if c.Headscale.DERPRegionID == 0 {
+				errs = append(errs, "headscale.derp_region_id: required (non-zero) when headscale.derp_enabled")
+			}
+			if c.Headscale.DERPHostname == "" {
+				errs = append(errs, "headscale.derp_hostname: required when headscale.derp_enabled (fallback to top-level hostname works if that's set)")
+			}
 		}
 	}
 

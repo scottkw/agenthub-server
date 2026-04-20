@@ -97,3 +97,25 @@ func TestConfig_HeadscaleValidation(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "headscale.binary_path")
 }
+
+func TestConfig_HeadscaleDERPDefaults(t *testing.T) {
+	c, err := Load(LoadOptions{})
+	require.NoError(t, err)
+	require.False(t, c.Headscale.DERPEnabled)
+	require.Equal(t, 999, c.Headscale.DERPRegionID)
+	require.Equal(t, "agenthub", c.Headscale.DERPRegionCode)
+	require.Equal(t, "0.0.0.0:3478", c.Headscale.DERPSTUNListenAddr)
+	require.Equal(t, 443, c.Headscale.DERPPort)
+	require.True(t, c.Headscale.DERPVerifyClients)
+	require.Equal(t, c.Hostname, c.Headscale.DERPHostname)
+}
+
+func TestConfig_HeadscaleDERPValidation(t *testing.T) {
+	c := Default()
+	c.Headscale.Enabled = true
+	c.Headscale.DERPEnabled = true
+	c.Headscale.DERPSTUNListenAddr = ""
+	err := c.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "derp_stun_listen_addr")
+}
