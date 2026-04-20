@@ -301,6 +301,11 @@ func tenancyAddMembershipTx(ctx context.Context, tx *sql.Tx, m tenancy.Membershi
 // (e.g. OAuth state store from the api package). Intentionally narrow.
 func (s *Service) DB() *sql.DB { return s.cfg.DB }
 
+// Signer returns the JWT signer used by this service. Exposed so handlers
+// that can't use the standard middleware (e.g. /ws) can parse tokens
+// directly.
+func (s *Service) Signer() *JWTSigner { return s.cfg.Signer }
+
 // slugify makes a URL-safe account slug from the account name; falls back to
 // the account id prefix if the name is empty or produces an empty slug.
 func slugify(name, accountID string) string {
