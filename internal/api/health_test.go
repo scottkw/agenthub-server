@@ -7,41 +7,45 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
-type fakePinger struct{ err error }
+type fakePinger struct {
+	err error
+}
 
-func (f fakePinger) Ping(ctx context.Context) error { return f.err }
+func (f *fakePinger) Ping(_ context.Context) error { return f.err }
 
 func TestHealth_OK(t *testing.T) {
-	h := NewHealthHandler(fakePinger{nil}, "test-1.2.3")
+	h := NewHealthHandler(&fakePinger{}, "v-test")
+	h.StartTime = time.Now().Add(-time.Second)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
-	h.ServeHTTP(rr, req)
-
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/healthz", nil))
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var body map[string]any
-	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	require.Equal(t, "ok", body["status"])
-	require.Equal(t, "test-1.2.3", body["version"])
-	require.Equal(t, "ok", body["db"])
+	require.Equal(t, "v-test", body["version"])
+	require.Greater(t, body["uptime_sec"], float64(0))
+
+	goStats, ok := body["go"].(map[string]any)
+	require.True(t, ok)
+	require.Greater(t, goStats["goroutines"], float64(0))
 }
 
 func TestHealth_DBFailure_Returns503(t *testing.T) {
-	h := NewHealthHandler(fakePinger{errors.New("connection refused")}, "v1")
+	h := NewHealthHandler(&fakePinger{err: errors.New("db down")}, "v-test")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
-	h.ServeHTTP(rr, req)
-
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/healthz", nil))
 	require.Equal(t, http.StatusServiceUnavailable, rr.Code)
 
 	var body map[string]any
-	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	require.Equal(t, "degraded", body["status"])
 	require.Equal(t, "down", body["db"])
 }
