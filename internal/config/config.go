@@ -422,9 +422,28 @@ func (c Config) Validate() error {
 		errs = append(errs, fmt.Sprintf("tls.mode: invalid value %q", c.TLS.Mode))
 	}
 
+	if c.HTTP.Port <= 0 || c.HTTP.Port > 65535 {
+		errs = append(errs, fmt.Sprintf("http.port: invalid port %d", c.HTTP.Port))
+	}
+	if c.HTTP.HTTPPort < 0 || c.HTTP.HTTPPort > 65535 {
+		errs = append(errs, fmt.Sprintf("http.http_port: invalid port %d", c.HTTP.HTTPPort))
+	}
+
+	if c.DataDir != "" {
+		info, err := os.Stat(c.DataDir)
+		if err != nil && !os.IsNotExist(err) {
+			errs = append(errs, fmt.Sprintf("data_dir: cannot stat: %v", err))
+		} else if err == nil && !info.IsDir() {
+			errs = append(errs, "data_dir: exists but is not a directory")
+		}
+	}
+
 	if c.Headscale.Enabled {
 		if c.Headscale.BinaryPath == "" {
 			errs = append(errs, "headscale.binary_path: required when headscale.enabled")
+		}
+		if _, err := os.Stat(c.Headscale.BinaryPath); err != nil {
+			errs = append(errs, fmt.Sprintf("headscale.binary_path: cannot stat %q: %v", c.Headscale.BinaryPath, err))
 		}
 		if c.Headscale.ServerURL == "" {
 			errs = append(errs, "headscale.server_url: required when headscale.enabled")

@@ -119,3 +119,31 @@ func TestConfig_HeadscaleDERPValidation(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "derp_stun_listen_addr")
 }
+
+func TestConfig_InvalidPort(t *testing.T) {
+	c := Default()
+	c.HTTP.Port = 99999
+	err := c.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "port")
+}
+
+func TestConfig_DataDirNotADirectory(t *testing.T) {
+	c := Default()
+	c.DataDir = t.TempDir() + "/notadir"
+	require.NoError(t, os.WriteFile(c.DataDir, []byte("x"), 0644))
+	err := c.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not a directory")
+}
+
+func TestConfig_HeadscaleBinaryMissing(t *testing.T) {
+	c := Default()
+	c.Headscale.Enabled = true
+	c.Headscale.BinaryPath = "/does/not/exist/headscale"
+	c.Headscale.ServerURL = "http://127.0.0.1:18081"
+	c.Headscale.ListenAddr = "127.0.0.1:18081"
+	err := c.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "binary_path")
+}
