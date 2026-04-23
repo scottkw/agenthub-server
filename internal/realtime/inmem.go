@@ -209,5 +209,37 @@ func (h *InMemoryHub) AccountConnCountForTest(accountID string) int {
 	return h.accountConnCount(accountID)
 }
 
+// BroadcastReconnect sends a "reconnect" event to every connection and
+// then closes them gracefully. Called during shutdown so clients know to
+// reconnect to a fresh instance.
+func (h *InMemoryHub) BroadcastReconnect() {
+	event := Event{
+		Type: "reconnect",
+		Data: map[string]any{"reason": "server_shutdown"},
+		At:   time.Now().UTC(),
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		h.log.Warn("realtime.BroadcastReconnect marshal failed", "err", err)
+		return
+	}
+
+	h.mu.Lock()
+	var all []*conn
+	for _, set := range h.conns {
+		for c := range set {
+			all = append(all, c)
+		}
+	}
+	h.mu.Unlock()
+
+	for _, c := range all {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = c.ws.Write(ctx, websocket.MessageText, data)
+		cancel()
+		_ = c.ws.Close(websocket.StatusGoingAway, "server shutdown")
+	}
+}
+
 // Compile-time assertion that *InMemoryHub satisfies Publisher.
 var _ Publisher = (*InMemoryHub)(nil)

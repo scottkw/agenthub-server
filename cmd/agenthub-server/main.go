@@ -200,6 +200,12 @@ func run() error {
 		})
 	}
 
+	// Pre-shutdown: tell realtime clients to reconnect.
+	go func() {
+		<-ctx.Done()
+		hub.BroadcastReconnect()
+	}()
+
 	err = supervisor.Run(ctx, services)
 	if err != nil && err != context.Canceled {
 		return err
