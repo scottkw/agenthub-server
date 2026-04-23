@@ -1,9 +1,14 @@
-.PHONY: build test lint run clean headscale-bin
+.PHONY: build test lint run clean headscale-bin admin-build
 
 BINARY := bin/agenthub-server
 PKG := ./...
+ADMIN_DIR := web/admin
 
-build:
+admin-build:
+	cd $(ADMIN_DIR) && npm install && npm run build
+	cp -r $(ADMIN_DIR)/dist internal/admin/dist
+
+build: admin-build
 	go build -o $(BINARY) ./cmd/agenthub-server
 
 test:
