@@ -3,6 +3,7 @@ package tenancy
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -73,6 +74,20 @@ func scanUser(row *sql.Row) (User, error) {
 		u.CreatedAt = t
 	}
 	return u, nil
+}
+
+// IsOperator returns true if the user has the operator flag set.
+func IsOperator(ctx context.Context, db *sql.DB, userID string) (bool, error) {
+	var flag int
+	err := db.QueryRowContext(ctx,
+		`SELECT is_operator FROM users WHERE id = ? AND deleted_at IS NULL`, userID).Scan(&flag)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("IsOperator: %w", err)
+	}
+	return flag == 1, nil
 }
 
 func nullIfEmpty(s string) any {

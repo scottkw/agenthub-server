@@ -7,6 +7,7 @@ import (
 
 	"github.com/scottkw/agenthub-server/internal/db/migrations"
 	"github.com/scottkw/agenthub-server/internal/db/sqlite"
+	"github.com/scottkw/agenthub-server/internal/ids"
 	"github.com/stretchr/testify/require"
 )
 
@@ -45,4 +46,26 @@ func TestUsers_MarkVerified(t *testing.T) {
 	got, err := GetUserByID(context.Background(), d.SQL(), "u")
 	require.NoError(t, err)
 	require.False(t, got.EmailVerifiedAt.IsZero())
+}
+
+func TestIsOperator(t *testing.T) {
+	d, err := sqlite.Open(sqlite.Options{Path: filepath.Join(t.TempDir(), "t.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = d.Close() })
+	require.NoError(t, migrations.Apply(context.Background(), d))
+
+	ctx := context.Background()
+	u := User{ID: ids.New(), Email: "op@example.com", Name: "Op"}
+	require.NoError(t, CreateUser(ctx, d.SQL(), u))
+
+	ok, err := IsOperator(ctx, d.SQL(), u.ID)
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	_, err = d.SQL().ExecContext(ctx, `UPDATE users SET is_operator = 1 WHERE id = ?`, u.ID)
+	require.NoError(t, err)
+
+	ok, err = IsOperator(ctx, d.SQL(), u.ID)
+	require.NoError(t, err)
+	require.True(t, ok)
 }
