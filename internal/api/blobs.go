@@ -16,11 +16,12 @@ import (
 )
 
 // BlobRoutes mounts /api/blobs/*.
-//   POST /presign       — get upload URL
-//   PUT  /upload/{id}   — in-process upload (file backend)
-//   POST /{id}/commit   — verify upload, record metadata
-//   GET  /{id}          — metadata + download URL
-//   GET  /download/{id} — serve bytes (file backend)
+//
+//	POST /presign       — get upload URL
+//	PUT  /upload/{id}   — in-process upload (file backend)
+//	POST /{id}/commit   — verify upload, record metadata
+//	GET  /{id}          — metadata + download URL
+//	GET  /download/{id} — serve bytes (file backend)
 func BlobRoutes(svc *auth.Service, store blob.Blob, pub realtime.Publisher) http.Handler {
 	r := chi.NewRouter()
 	r.Use(auth.RequireAuthOrTokenFromService(svc))
@@ -62,8 +63,8 @@ func presignBlobHandler(svc *auth.Service, store blob.Blob) http.HandlerFunc {
 		}
 
 		WriteJSON(w, http.StatusOK, map[string]any{
-			"put_url":    putURL,
-			"object_id":  objectID,
+			"put_url":   putURL,
+			"object_id": objectID,
 		})
 	}
 }

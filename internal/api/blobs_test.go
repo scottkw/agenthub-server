@@ -112,7 +112,9 @@ func TestBlobs_CommitWithoutUploadFails(t *testing.T) {
 		"content_type": "text/plain", "size_bytes": 1, "sha256": "x",
 	}, authH)
 	require.Equal(t, http.StatusOK, rr.Code)
-	var presign struct{ ObjectID string `json:"object_id"` }
+	var presign struct {
+		ObjectID string `json:"object_id"`
+	}
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &presign))
 
 	// Commit should fail because the file doesn't exist.
