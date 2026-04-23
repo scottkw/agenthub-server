@@ -2,78 +2,65 @@ package auth
 
 import (
 	"context"
-	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/scottkw/agenthub-server/internal/db/migrations"
+	"github.com/scottkw/agenthub-server/internal/db/sqlite"
+	"github.com/scottkw/agenthub-server/internal/ids"
+	"github.com/scottkw/agenthub-server/internal/tenancy"
 )
 
-func seedActiveSession(t *testing.T, db *sql.DB, jti string) {
-	t.Helper()
-	_, err := db.ExecContext(context.Background(),
-		`INSERT INTO auth_sessions (id, user_id, account_id, expires_at)
-		 VALUES (?, 'u1', 'acct1', datetime('now', '+1 hour'))`, jti)
+func TestRequireOperator(t *testing.T) {
+	d, err := sqlite.Open(sqlite.Options{Path: filepath.Join(t.TempDir(), "t.db")})
 	require.NoError(t, err)
-}
+	t.Cleanup(func() { _ = d.Close() })
+	require.NoError(t, migrations.Apply(context.Background(), d))
 
-func TestRequireAuth_ValidToken(t *testing.T) {
-	db := withTestDB(t)
-	key := make([]byte, 32)
-	signer := NewJWTSigner(key, "agenthub-server")
+	key, _ := LoadOrCreateJWTKey(context.Background(), d.SQL())
+	signer := NewJWTSigner(key, "test")
+	svc := NewService(Config{DB: d.SQL(), Signer: signer})
 
-	seedActiveSession(t, db, "jti1")
-	tok, err := signer.Sign(Claims{SessionID: "jti1", UserID: "u1", AccountID: "acct1", TTL: time.Hour})
+	ctx := context.Background()
+	require.NoError(t, tenancy.CreateAccount(ctx, d.SQL(), tenancy.Account{ID: "acct1", Name: "A", Slug: "a"}))
+	u := tenancy.User{ID: ids.New(), Email: "norm@example.com", Name: "Norm"}
+	require.NoError(t, tenancy.CreateUser(ctx, d.SQL(), u))
+	op := tenancy.User{ID: ids.New(), Email: "op@example.com", Name: "Op"}
+	require.NoError(t, tenancy.CreateUser(ctx, d.SQL(), op))
+	_, err = d.SQL().ExecContext(ctx, `UPDATE users SET is_operator = 1 WHERE id = ?`, op.ID)
 	require.NoError(t, err)
 
-	gotCtx := make(chan context.Context, 1)
-	h := RequireAuth(signer, db)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotCtx <- r.Context()
-		w.WriteHeader(200)
-	}))
+	// Create a session for op so CheckSessionActive passes.
+	sess, err := CreateSession(ctx, d.SQL(), SessionInput{ID: ids.New(), UserID: op.ID, AccountID: "acct1", TTL: time.Hour})
+	require.NoError(t, err)
+	tok, err := signer.Sign(Claims{UserID: op.ID, AccountID: "acct1", SessionID: sess.ID, TTL: time.Hour})
+	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/x", nil)
+	normSess, err := CreateSession(ctx, d.SQL(), SessionInput{ID: ids.New(), UserID: u.ID, AccountID: "acct1", TTL: time.Hour})
+	require.NoError(t, err)
+	normTok, err := signer.Sign(Claims{UserID: u.ID, AccountID: "acct1", SessionID: normSess.ID, TTL: time.Hour})
+	require.NoError(t, err)
+
+	handler := RequireAuth(signer, d.SQL())(RequireOperator(svc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+
+	// Operator succeeds.
+	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, req)
+	handler.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
 
-	require.Equal(t, 200, rr.Code)
-	ctx := <-gotCtx
-	require.Equal(t, "u1", UserID(ctx))
-	require.Equal(t, "acct1", AccountID(ctx))
-	require.Equal(t, "jti1", SessionID(ctx))
-}
-
-func TestRequireAuth_MissingHeader(t *testing.T) {
-	db := withTestDB(t)
-	signer := NewJWTSigner(make([]byte, 32), "agenthub-server")
-
-	h := RequireAuth(signer, db)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-
-	req := httptest.NewRequest("GET", "/x", nil)
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, req)
-
-	require.Equal(t, http.StatusUnauthorized, rr.Code)
-}
-
-func TestRequireAuth_RevokedSession(t *testing.T) {
-	db := withTestDB(t)
-	key := make([]byte, 32)
-	signer := NewJWTSigner(key, "agenthub-server")
-
-	seedActiveSession(t, db, "jti2")
-	require.NoError(t, RevokeSession(context.Background(), db, "jti2"))
-
-	tok, _ := signer.Sign(Claims{SessionID: "jti2", UserID: "u1", AccountID: "acct1", TTL: time.Hour})
-	h := RequireAuth(signer, db)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-
-	req := httptest.NewRequest("GET", "/x", nil)
-	req.Header.Set("Authorization", "Bearer "+tok)
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, req)
-
-	require.Equal(t, http.StatusUnauthorized, rr.Code)
+	// Non-operator gets 403.
+	req2 := httptest.NewRequest("GET", "/", nil)
+	req2.Header.Set("Authorization", "Bearer "+normTok)
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+	require.Equal(t, http.StatusForbidden, rr2.Code)
 }

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"net/http"
 	"strings"
+
+	"github.com/scottkw/agenthub-server/internal/tenancy"
 )
 
 type ctxKey int
@@ -14,6 +16,7 @@ const (
 	ctxAccountID
 	ctxSessionID
 	ctxDeviceID
+	ctxIsOperator
 )
 
 // RequireAuth is HTTP middleware that validates a Bearer JWT, checks that the
@@ -66,6 +69,38 @@ func bearerToken(r *http.Request) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(h[len(prefix):]), true
+}
+
+// IsOperator returns true if the authenticated user is an operator.
+func IsOperator(ctx context.Context) bool {
+	if v, ok := ctx.Value(ctxIsOperator).(bool); ok {
+		return v
+	}
+	return false
+}
+
+// RequireOperator wraps an auth-gated handler and returns 403 Forbidden if
+// the authenticated user is not an operator.
+func RequireOperator(svc *Service) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			uid := UserID(r.Context())
+			if uid == "" {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			ok, err := tenancy.IsOperator(r.Context(), svc.cfg.DB, uid)
+			if err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			if !ok {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxIsOperator, true)))
+		})
+	}
 }
 
 // RequireAuthFromService returns a RequireAuth middleware using the Service's

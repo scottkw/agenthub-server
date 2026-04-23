@@ -28,6 +28,13 @@ func withTestDB(t *testing.T) *sql.DB {
 	return d.SQL()
 }
 
+func seedActiveSession(t *testing.T, db *sql.DB, jti string) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(),
+		`INSERT INTO auth_sessions (id, user_id, account_id, expires_at) VALUES (?, 'u1', 'acct1', datetime('now','+1 hour'))`, jti)
+	require.NoError(t, err)
+}
+
 func TestCreateSession_AndCheck(t *testing.T) {
 	db := withTestDB(t)
 
