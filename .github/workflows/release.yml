@@ -1,0 +1,49 @@
+name: release
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: web/admin/package-lock.json
+      - name: Build admin SPA
+        run: make admin-build
+      - name: Build cross-platform binaries
+        run: |
+          mkdir -p dist
+          for goos in linux darwin; do
+            for goarch in amd64 arm64; do
+              out="dist/agenthub-server-${goos}-${goarch}"
+              GOOS=$goos GOARCH=$goarch CGO_ENABLED=0 \
+                go build -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" \
+                -o "$out" ./cmd/agenthub-server
+            done
+          done
+      - name: Build and push Docker image
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker build -t ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME} .
+          docker push ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME}
+          docker tag ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME} ghcr.io/${{ github.repository }}:latest
+          docker push ghcr.io/${{ github.repository }}:latest
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
