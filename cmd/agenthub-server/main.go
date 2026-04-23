@@ -23,6 +23,7 @@ import (
 
 	"github.com/scottkw/agenthub-server/internal/api"
 	"github.com/scottkw/agenthub-server/internal/auth"
+	"github.com/scottkw/agenthub-server/internal/blob"
 	"github.com/scottkw/agenthub-server/internal/config"
 	dbpkg "github.com/scottkw/agenthub-server/internal/db"
 	"github.com/scottkw/agenthub-server/internal/db/migrations"
@@ -95,6 +96,17 @@ func run() error {
 	hub := realtime.NewInMemoryHub(realtime.HubConfig{}).WithLogger(logger)
 	defer hub.Close()
 
+	store := blob.NewFileBlob(blob.FileBlobOptions{
+		BasePath: filepath.Join(cfg.DataDir, "blobs"),
+		BaseURL:  fmt.Sprintf("https://%s/api/blobs", cfg.Hostname),
+	})
+	if cfg.TLS.Mode == config.TLSModeOff {
+		store = blob.NewFileBlob(blob.FileBlobOptions{
+			BasePath: filepath.Join(cfg.DataDir, "blobs"),
+			BaseURL:  fmt.Sprintf("http://%s:%d/api/blobs", cfg.Hostname, cfg.HTTP.Port),
+		})
+	}
+
 	router := chi.NewRouter()
 	router.Mount("/healthz", api.NewHealthHandler(db, version))
 
@@ -148,6 +160,9 @@ func run() error {
 
 	// /ws: realtime event stream per account.
 	router.Handle("/ws", api.WSRoutes(authSvc, hub))
+
+	// /api/blobs: object storage presign + upload + commit + download.
+	router.Mount("/api/blobs", api.BlobRoutes(authSvc, store, hub))
 
 	if cfg.Headscale.Enabled {
 		hsURL, err := url.Parse("http://" + cfg.Headscale.ListenAddr)
