@@ -21,6 +21,7 @@ import (
 	"golang.org/x/oauth2/github"
 	"golang.org/x/oauth2/google"
 
+	"github.com/scottkw/agenthub-server/internal/admin"
 	"github.com/scottkw/agenthub-server/internal/api"
 	"github.com/scottkw/agenthub-server/internal/auth"
 	"github.com/scottkw/agenthub-server/internal/blob"
@@ -163,6 +164,10 @@ func run() error {
 
 	// /api/blobs: object storage presign + upload + commit + download.
 	router.Mount("/api/blobs", api.BlobRoutes(authSvc, store, hub))
+
+	// Admin API (operator-gated) + SPA.
+	router.Mount("/api/admin", api.AdminRoutes(authSvc))
+	router.Mount("/admin", admin.Handler())
 
 	if cfg.Headscale.Enabled {
 		hsURL, err := url.Parse("http://" + cfg.Headscale.ListenAddr)
